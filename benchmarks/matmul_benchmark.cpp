@@ -86,6 +86,15 @@ std::vector<float> simd_kernel(const std::vector<float>& a,
     return matmul_simd(a, b, m, n, k);
 }
 
+std::vector<float> blocked_simd_kernel(const std::vector<float>& a,
+                                      const std::vector<float>& b,
+                                      std::size_t m,
+                                      std::size_t n,
+                                      std::size_t k,
+                                      std::size_t block_size = 8) {
+    return matmul_blocked_simd(a, b, m, n, k, block_size);
+}
+
 template <typename KernelFunc>
 std::vector<double> benchmark_impl(const std::vector<float>& a,
                                   const std::vector<float>& b,
@@ -152,6 +161,37 @@ std::vector<double> benchmark_blocked_impl(const std::vector<float>& a,
     return timings;
 }
 
+std::vector<double> benchmark_blocked_simd_impl(const std::vector<float>& a,
+                                               const std::vector<float>& b,
+                                               std::size_t matrix_size,
+                                               std::size_t block_size) {
+    std::vector<double> timings;
+    timings.reserve(kTimedRepetitions);
+
+    for (std::size_t i = 0; i < kWarmupIterations; ++i) {
+        const auto warmup_result = matmul_blocked_simd(a, b, matrix_size, matrix_size, matrix_size, block_size);
+        if (warmup_result.size() != matrix_size * matrix_size) {
+            throw std::runtime_error("blocked SIMD warm-up result has an unexpected size.");
+        }
+        (void)checksum_result(warmup_result);
+    }
+
+    for (std::size_t i = 0; i < kTimedRepetitions; ++i) {
+        const auto start = std::chrono::steady_clock::now();
+        const auto result = matmul_blocked_simd(a, b, matrix_size, matrix_size, matrix_size, block_size);
+        const auto end = std::chrono::steady_clock::now();
+
+        if (result.size() != matrix_size * matrix_size) {
+            throw std::runtime_error("blocked SIMD timed result has an unexpected size.");
+        }
+
+        timings.push_back(std::chrono::duration<double>(end - start).count());
+        (void)checksum_result(result);
+    }
+
+    return timings;
+}
+
 void benchmark_case(std::size_t matrix_size) {
     const auto a = make_deterministic_matrix(matrix_size, matrix_size, 11);
     const auto b = make_deterministic_matrix(matrix_size, matrix_size, 17);
@@ -185,6 +225,25 @@ void benchmark_case(std::size_t matrix_size) {
                   << " | " << blocked_gflops
                   << " | " << blocked_speedup << "\n";
     }
+
+    const std::size_t blocked_simd_block_size = 8;
+    const auto blocked_simd_timings = benchmark_blocked_simd_impl(a, b, matrix_size, blocked_simd_block_size);
+    const auto blocked_simd_result = matmul_blocked_simd(a, b, matrix_size, matrix_size, matrix_size, blocked_simd_block_size);
+
+    if (!nearly_equal(naive_result, blocked_simd_result, kTolerance)) {
+        throw std::runtime_error("Naive and blocked SIMD results differ beyond the tolerance for benchmark size " +
+                                 std::to_string(matrix_size) + ".");
+    }
+
+    const double blocked_simd_median = median_latency(blocked_simd_timings);
+    const double blocked_simd_gflops = (2.0 * static_cast<double>(matrix_size) * static_cast<double>(matrix_size) *
+                                       static_cast<double>(matrix_size)) /
+                                      (blocked_simd_median * 1.0e9);
+    const double blocked_simd_speedup = naive_median / blocked_simd_median;
+
+    std::cout << matrix_size << " | blocked_simd_8 | " << (blocked_simd_median * 1.0e3)
+              << " | " << blocked_simd_gflops
+              << " | " << blocked_simd_speedup << "\n";
 
     const auto simd_timings = benchmark_impl(a, b, matrix_size, "simd", simd_kernel);
     const auto simd_result = matmul_simd(a, b, matrix_size, matrix_size, matrix_size);

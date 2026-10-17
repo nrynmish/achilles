@@ -283,6 +283,98 @@ bool test_blocked_randomized_small_matrices() {
     return expect_vector_equal(actual, expected, "randomized small matrices match the naive reference", kBlockedTolerance);
 }
 
+bool test_blocked_simd_matches_naive_rectangular() {
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    const std::vector<float> b = {7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    const auto expected = matmul_naive(a, b, 2, 2, 3);
+    const auto actual = matmul_blocked_simd(a, b, 2, 2, 3, 8);
+    return expect_vector_equal(actual, expected, "blocked SIMD output matches naive for rectangular matrices", 1.0e-5f);
+}
+
+bool test_blocked_simd_matches_naive_small_matrices() {
+    const std::vector<float> a = {2.0f, -1.0f, 3.0f, 0.5f, 4.0f, -2.0f};
+    const std::vector<float> b = {1.0f, 2.0f, -3.0f, 0.25f, 4.0f, 5.0f};
+    const auto expected = matmul_naive(a, b, 2, 2, 3);
+    const auto actual = matmul_blocked_simd(a, b, 2, 2, 3, 2);
+    return expect_vector_equal(actual, expected, "blocked SIMD output matches naive for small matrices", 1.0e-5f);
+}
+
+bool test_blocked_simd_matches_naive_non_multiple_of_8() {
+    const std::size_t rows = 11;
+    const std::size_t cols = 9;
+    const std::size_t inner = 7;
+
+    std::vector<float> a(rows * inner, 0.0f);
+    std::vector<float> b(inner * cols, 0.0f);
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        a[i] = static_cast<float>((i % 13) + 1) / 3.0f;
+    }
+    for (std::size_t i = 0; i < b.size(); ++i) {
+        b[i] = static_cast<float>((i % 9) + 2) / 5.0f;
+    }
+
+    const auto expected = matmul_naive(a, b, rows, cols, inner);
+    const auto actual = matmul_blocked_simd(a, b, rows, cols, inner, 8);
+    return expect_vector_equal(actual, expected, "blocked SIMD output matches naive for non-multiple-of-8 widths", 1.0e-5f);
+}
+
+bool test_blocked_simd_matches_naive_randomized_sizes() {
+    std::mt19937 generator(77777);
+    std::uniform_real_distribution<float> dist(-1.5f, 1.5f);
+
+    const std::vector<std::size_t> rows_list = {1u, 3u, 5u, 7u, 9u};
+    const std::vector<std::size_t> col_list = {2u, 4u, 6u, 8u, 10u};
+    const std::vector<std::size_t> inner_list = {2u, 3u, 5u, 7u, 11u};
+
+    bool all_ok = true;
+    for (std::size_t rows : rows_list) {
+        for (std::size_t cols : col_list) {
+            for (std::size_t inner : inner_list) {
+                std::vector<float> a(rows * inner, 0.0f);
+                std::vector<float> b(inner * cols, 0.0f);
+                for (std::size_t i = 0; i < a.size(); ++i) {
+                    a[i] = dist(generator);
+                }
+                for (std::size_t i = 0; i < b.size(); ++i) {
+                    b[i] = dist(generator);
+                }
+
+                const auto expected = matmul_naive(a, b, rows, cols, inner);
+                const auto actual = matmul_blocked_simd(a, b, rows, cols, inner, 8);
+                if (!expect_vector_equal(actual, expected, "blocked SIMD output matches naive for randomized dimensions", 1.0e-5f)) {
+                    all_ok = false;
+                }
+            }
+        }
+    }
+    return all_ok;
+}
+
+bool test_blocked_simd_zero_size_block_throws() {
+    try {
+        (void)matmul_blocked_simd({1.0f, 2.0f, 3.0f, 4.0f}, {5.0f, 6.0f, 7.0f, 8.0f}, 2, 2, 2, 0);
+        std::cout << "[FAIL] zero block size did not throw std::invalid_argument for matmul_blocked_simd\n";
+        return false;
+    } catch (const std::invalid_argument&) {
+        std::cout << "[PASS] zero block size throws std::invalid_argument for matmul_blocked_simd\n";
+        return true;
+    } catch (const std::exception& ex) {
+        std::cout << "[FAIL] zero block size threw unexpected exception for matmul_blocked_simd: " << ex.what() << "\n";
+        return false;
+    }
+}
+
+bool test_blocked_simd_zero_sized_dimensions() {
+    const std::vector<float> empty;
+    const auto result = matmul_blocked_simd(empty, empty, 0, 7, 0, 8);
+    if (result.size() != 0) {
+        std::cout << "[FAIL] blocked SIMD zero-sized dimensions produced a non-empty matrix\n";
+        return false;
+    }
+    std::cout << "[PASS] blocked SIMD zero-sized dimensions\n";
+    return true;
+}
+
 bool test_simd_matches_naive_rectangular() {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
     const std::vector<float> b = {7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
@@ -448,6 +540,12 @@ int main() {
     run_test("test_blocked_rejects_invalid_b_storage", test_blocked_rejects_invalid_b_storage);
     run_test("test_blocked_zero_sized_dimensions", test_blocked_zero_sized_dimensions);
     run_test("test_blocked_randomized_small_matrices", test_blocked_randomized_small_matrices);
+    run_test("test_blocked_simd_matches_naive_rectangular", test_blocked_simd_matches_naive_rectangular);
+    run_test("test_blocked_simd_matches_naive_small_matrices", test_blocked_simd_matches_naive_small_matrices);
+    run_test("test_blocked_simd_matches_naive_non_multiple_of_8", test_blocked_simd_matches_naive_non_multiple_of_8);
+    run_test("test_blocked_simd_matches_naive_randomized_sizes", test_blocked_simd_matches_naive_randomized_sizes);
+    run_test("test_blocked_simd_zero_size_block_throws", test_blocked_simd_zero_size_block_throws);
+    run_test("test_blocked_simd_zero_sized_dimensions", test_blocked_simd_zero_sized_dimensions);
     run_test("test_simd_matches_naive_rectangular", test_simd_matches_naive_rectangular);
     run_test("test_simd_matches_naive_smaller_than_vector_width", test_simd_matches_naive_smaller_than_vector_width);
     run_test("test_simd_matches_naive_non_multiple_of_8", test_simd_matches_naive_non_multiple_of_8);

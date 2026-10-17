@@ -36,3 +36,15 @@ std::vector<float> matmul_simd(
     std::size_t m,
     std::size_t n,
     std::size_t k);
+
+// Matrix multiply using cache-blocked AVX2/FMA vectorization.
+// A is an M x K matrix, B is a K x N matrix, and the result is an M x N matrix.
+// The implementation tiles the result into cache-friendly blocks and then processes
+// each output-column strip with a width-8 AVX2/FMA vector path when supported.
+std::vector<float> matmul_blocked_simd(
+    const std::vector<float>& a,
+    const std::vector<float>& b,
+    std::size_t m,
+    std::size_t n,
+    std::size_t k,
+    std::size_t block_size = 32);

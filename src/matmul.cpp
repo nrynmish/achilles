@@ -188,6 +188,86 @@ static std::vector<float> matmul_simd_avx2(
     return result;
 }
 
+ACHILLES_SIMD_AVX2
+static std::vector<float> matmul_blocked_simd_avx2(
+    const std::vector<float>& a,
+    const std::vector<float>& b,
+    std::size_t m,
+    std::size_t n,
+    std::size_t k,
+    std::size_t block_size) {
+    const std::size_t expected_output_size = checked_product(m, n, "output");
+    std::vector<float> result(expected_output_size, 0.0f);
+
+    for (std::size_t row = 0; row < m; row = safe_tile_end(row, block_size, m)) {
+        const std::size_t row_end = safe_tile_end(row, block_size, m);
+
+        for (std::size_t inner = 0; inner < k; inner = safe_tile_end(inner, block_size, k)) {
+            const std::size_t inner_end = safe_tile_end(inner, block_size, k);
+
+            for (std::size_t col = 0; col < n; col = safe_tile_end(col, block_size, n)) {
+                const std::size_t col_end = safe_tile_end(col, block_size, n);
+
+                for (std::size_t i = row; i < row_end; ++i) {
+                    const std::size_t a_row_offset = i * k;
+                    std::size_t j = col;
+
+                    while (j < col_end) {
+                        if (col_end - j < kSimdWidth) {
+                            break;
+                        }
+
+                        __m256 acc = _mm256_loadu_ps(&result[i * n + j]);
+                        for (std::size_t p = inner; p < inner_end; ++p) {
+                            const __m256 a_vec = _mm256_set1_ps(a[a_row_offset + p]);
+                            const __m256 b_vec = _mm256_loadu_ps(&b[p * n + j]);
+                            acc = _mm256_fmadd_ps(a_vec, b_vec, acc);
+                        }
+                        _mm256_storeu_ps(&result[i * n + j], acc);
+                        j += kSimdWidth;
+                    }
+
+                    for (; j < col_end; ++j) {
+                        float sum = result[i * n + j];
+                        for (std::size_t p = inner; p < inner_end; ++p) {
+                            sum += a[a_row_offset + p] * b[p * n + j];
+                        }
+                        result[i * n + j] = sum;
+                    }
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+std::vector<float> matmul_blocked_simd(
+    const std::vector<float>& a,
+    const std::vector<float>& b,
+    std::size_t m,
+    std::size_t n,
+    std::size_t k,
+    std::size_t block_size) {
+    if (block_size == 0) {
+        throw std::invalid_argument("block_size must be non-zero.");
+    }
+
+    validate_matrix_storage(a, b, m, n, k);
+    const std::size_t expected_output_size = checked_product(m, n, "output");
+    std::vector<float> result(expected_output_size, 0.0f);
+
+    if (m == 0 || n == 0 || k == 0) {
+        return result;
+    }
+
+    if (cpu_supports_avx2_fma()) {
+        return matmul_blocked_simd_avx2(a, b, m, n, k, block_size);
+    }
+
+    return matmul_blocked(a, b, m, n, k, block_size);
+}
+
 std::vector<float> matmul_simd(
     const std::vector<float>& a,
     const std::vector<float>& b,
