@@ -1,0 +1,14 @@
+build/
+cmake-build-*/
+out/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.vscode/
+.idea/
+artifacts/
+*.csv
+.DS_Store
+Thumbs.db

@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.20)
+project(Achilles VERSION 0.1.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(ACHILLES_ENABLE_AVX2 "Enable the AVX2/FMA SIMD path when the compiler supports it." ON)
+
+add_library(achilles src/matmul.cpp)
+target_include_directories(achilles PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_options(achilles PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>)
+
+if(ACHILLES_ENABLE_AVX2 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_definitions(achilles PRIVATE ACHILLES_ENABLE_AVX2=1)
+    message(STATUS "Achilles: AVX2/FMA SIMD code is isolated behind the runtime CPU check and target attribute; no library-wide AVX2 flags are enabled.")
+else()
+    message(STATUS "Achilles: AVX2/FMA SIMD path is disabled; the scalar fallback remains active and portable.")
+endif()
+
+enable_testing()
+add_executable(achilles_tests tests/test_matmul.cpp)
+target_link_libraries(achilles_tests PRIVATE achilles)
+add_test(NAME achilles_tests COMMAND achilles_tests)
+add_executable(achilles_benchmark benchmarks/matmul_benchmark.cpp)
+target_link_libraries(achilles_benchmark PRIVATE achilles)
